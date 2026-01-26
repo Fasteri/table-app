@@ -32,7 +32,14 @@ fn read_db(app: &tauri::AppHandle) -> Result<Value, String> {
   if !file_path.exists() {
     return Ok(default_db());
   }
-  let raw = fs::read_to_string(&file_path).map_err(|e| format!("DB_READ_FAILED: {e}"))?;
+  let mut raw =
+    fs::read_to_string(&file_path).map_err(|e| format!("DB_READ_FAILED: {e}"))?;
+  if raw.trim().is_empty() {
+    return Ok(default_db());
+  }
+  if let Some(stripped) = raw.strip_prefix('\u{feff}') {
+    raw = stripped.to_string();
+  }
   serde_json::from_str(&raw).map_err(|e| format!("DB_PARSE_FAILED: {e}"))
 }
 
@@ -44,6 +51,17 @@ fn write_db(app: &tauri::AppHandle, db: &Value) -> Result<(), String> {
   ensure_parent_dir(&file_path)?;
   let body = serde_json::to_string_pretty(db).map_err(|e| format!("DB_SERIALIZE_FAILED: {e}"))?;
   fs::write(&file_path, body).map_err(|e| format!("DB_WRITE_FAILED: {e}"))
+}
+
+#[tauri::command]
+fn open_data_dir(app: tauri::AppHandle) -> Result<Value, String> {
+  let dir = app
+    .path()
+    .app_data_dir()
+    .map_err(|e| format!("APP_DATA_DIR_FAILED: {e}"))?;
+  fs::create_dir_all(&dir).map_err(|e| format!("DB_DIR_CREATE_FAILED: {e}"))?;
+  open::that(&dir).map_err(|e| format!("OPEN_DIR_FAILED: {e}"))?;
+  Ok(json!({ "ok": true, "path": dir.to_string_lossy() }))
 }
 
 fn normalize_name(s: &str) -> String {
@@ -132,6 +150,16 @@ fn create_person(app: tauri::AppHandle, person: Value) -> Result<Value, String> 
       Some("Да") => "Да",
       _ => "Нет",
     };
+  let limitations_status =
+    match person.get("limitationsStatus").and_then(|v| v.as_str()) {
+      Some("Да") => "Да",
+      _ => "Нет",
+    };
+  let participation_status =
+    match person.get("participationStatus").and_then(|v| v.as_str()) {
+      Some("Да") => "Да",
+      _ => "Нет",
+    };
   let notes = person
     .get("notes")
     .and_then(|v| v.as_str())
@@ -144,6 +172,8 @@ fn create_person(app: tauri::AppHandle, person: Value) -> Result<Value, String> 
     "groupNumber": group_number,
     "studyStatus": study_status,
     "impromptuStatus": impromptu_status,
+    "limitationsStatus": limitations_status,
+    "participationStatus": participation_status,
     "notes": notes,
   });
 
@@ -166,7 +196,12 @@ pub fn run() {
       }
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![get_db, put_db, create_person])
+    .invoke_handler(tauri::generate_handler![
+      get_db,
+      put_db,
+      create_person,
+      open_data_dir
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

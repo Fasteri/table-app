@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -119,7 +119,6 @@ export default function Page() {
   const [db, setDb] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [profileEdit, setProfileEdit] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [saving, setSaving] = useState(false);
@@ -135,7 +134,7 @@ export default function Page() {
     title: TASK_TITLES[0],
     taskDate: "",
     isImpromptu: "Нет",
-    priority: 2,
+    taskNumber: 2,
     situation: "",
     myRole: "Проводящий",
     partnerId: "",
@@ -145,6 +144,7 @@ export default function Page() {
   // поиск напарника
   const [partnerQuery, setPartnerQuery] = useState("");
   const [partnerListOpen, setPartnerListOpen] = useState(false);
+  const [partnerListMode, setPartnerListMode] = useState("match"); // match | all
   const partnerWrapRef = useRef(null);
 
   // “схлопнуть аккордеоны” после сохранения
@@ -200,95 +200,138 @@ export default function Page() {
     [people, personId]
   );
 
-  const partnerOptions = useMemo(() => {
+  const eligiblePeople = useMemo(() => {
     const meId = String(personId);
-    return (people || [])
-      .filter((p) => String(p.id) !== meId)
-      .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    return (people || []).filter((p) => {
+      if (String(p.id) === meId) return false;
+      if (String(p.limitationsStatus || "Нет") === "Да") return false;
+      if (String(p.participationStatus || "Да") === "Нет") return false;
+      return true;
+    });
   }, [people, personId]);
 
-  const lastAssignmentByPerson = useMemo(() => {
-    const map = new Map();
-    for (const t of tasks || []) {
-      const d = parseDateOrNull(t.taskDate);
-      if (!d) continue;
-      const ts = d.getTime();
-      for (const a of t.assignments || []) {
-        const pid = String(a.personId);
-        const prev = map.get(pid);
-        if (!prev || ts > prev.time) {
-          map.set(pid, { time: ts, role: a.role || "" });
-        }
-      }
-    }
-    return map;
-  }, [tasks]);
+  const partnerOptions = useMemo(() => {
+    return eligiblePeople
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+  }, [eligiblePeople]);
 
   const partnerSuggestion = useMemo(() => {
     if (!person) return null;
-    const meId = String(person.id);
     const myGender = String(person.gender || "");
+    const list = eligiblePeople
+      .filter((p) => String(p.gender || "") === myGender)
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    return list[0] || null;
+  }, [eligiblePeople, person]);
 
-    const candidates = (people || []).filter((p) => {
-      if (String(p.id) === meId) return false;
-      if (String(p.gender || "") !== myGender) return false;
-      const last = lastAssignmentByPerson.get(String(p.id));
-      return last?.role === "Проводящий";
-    });
-
-    if (candidates.length === 0) return null;
+  const matchingPartners = useMemo(() => {
+    if (!person) return [];
+    const myGender = String(person.gender || "");
+    const candidates = eligiblePeople.filter(
+      (p) => String(p.gender || "") === myGender
+    );
 
     const lastTogetherByPartner = new Map();
+    const lastAnyByPerson = new Map();
+    const recentCountByPerson = new Map();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const from = new Date(today);
+    from.setMonth(from.getMonth() - 6);
+    const fromTs = from.getTime();
+
     for (const t of tasks || []) {
       const d = parseDateOrNull(t.taskDate);
       if (!d) continue;
+      d.setHours(0, 0, 0, 0);
       const ts = d.getTime();
       const assignments = Array.isArray(t.assignments) ? t.assignments : [];
-      const hasMe = assignments.some((a) => String(a.personId) === meId);
+
+      for (const a of assignments) {
+        const pid = String(a.personId);
+        const prev = lastAnyByPerson.get(pid) || 0;
+        if (ts > prev) lastAnyByPerson.set(pid, ts);
+        if (ts >= fromTs) {
+          recentCountByPerson.set(pid, (recentCountByPerson.get(pid) || 0) + 1);
+        }
+      }
+
+      const hasMe = assignments.some((a) => String(a.personId) === String(person.id));
       if (!hasMe) continue;
       for (const a of assignments) {
         const pid = String(a.personId);
-        if (pid === meId) continue;
+        if (pid === String(person.id)) continue;
         const prev = lastTogetherByPartner.get(pid) || 0;
         if (ts > prev) lastTogetherByPartner.set(pid, ts);
       }
     }
 
-    const neverTogether = candidates.filter(
-      (p) => !lastTogetherByPartner.has(String(p.id))
-    );
-    if (neverTogether.length > 0) {
-      return neverTogether.sort((a, b) =>
-        (a.name || "").localeCompare(b.name || "", "ru")
-      )[0];
-    }
-
     return candidates
       .slice()
       .sort((a, b) => {
-        const ta = lastTogetherByPartner.get(String(a.id)) || 0;
-        const tb = lastTogetherByPartner.get(String(b.id)) || 0;
-        if (ta !== tb) return ta - tb;
+        const aId = String(a.id);
+        const bId = String(b.id);
+        const aNever = !lastTogetherByPartner.has(aId);
+        const bNever = !lastTogetherByPartner.has(bId);
+        if (aNever !== bNever) return aNever ? -1 : 1;
+
+        if (aNever && bNever) {
+          const aCnt = recentCountByPerson.get(aId) || 0;
+          const bCnt = recentCountByPerson.get(bId) || 0;
+          if (aCnt !== bCnt) return aCnt - bCnt;
+          const aLast = lastAnyByPerson.get(aId) || 0;
+          const bLast = lastAnyByPerson.get(bId) || 0;
+          if (aLast !== bLast) return aLast - bLast;
+          return (a.name || "").localeCompare(b.name || "", "ru");
+        }
+
+        const aTogether = lastTogetherByPartner.get(aId) || 0;
+        const bTogether = lastTogetherByPartner.get(bId) || 0;
+        if (aTogether !== bTogether) return aTogether - bTogether;
+
+        const aCnt = recentCountByPerson.get(aId) || 0;
+        const bCnt = recentCountByPerson.get(bId) || 0;
+        if (aCnt !== bCnt) return aCnt - bCnt;
+
+        const aLast = lastAnyByPerson.get(aId) || 0;
+        const bLast = lastAnyByPerson.get(bId) || 0;
+        if (aLast !== bLast) return aLast - bLast;
         return (a.name || "").localeCompare(b.name || "", "ru");
-      })[0];
-  }, [people, tasks, person, lastAssignmentByPerson]);
+      });
+  }, [eligiblePeople, person, tasks]);
+
+  const partnerRank = useMemo(() => {
+    const map = new Map();
+    const total = matchingPartners.length;
+    if (total === 0) return map;
+    const chunk = Math.max(1, Math.ceil(total / 3));
+    matchingPartners.forEach((p, idx) => {
+      const tier = idx < chunk ? "good" : idx < chunk * 2 ? "mid" : "low";
+      map.set(String(p.id), tier);
+    });
+    return map;
+  }, [matchingPartners]);
 
   const selectedPartner = useMemo(() => {
     if (!newTask.partnerId) return null;
     return (
-      partnerOptions.find((p) => String(p.id) === String(newTask.partnerId)) ||
+      (people || []).find((p) => String(p.id) === String(newTask.partnerId)) ||
       null
     );
-  }, [newTask.partnerId, partnerOptions]);
+  }, [newTask.partnerId, people]);
 
   const filteredPartners = useMemo(() => {
     const q = String(partnerQuery || "").trim().toLowerCase();
-    if (!q) return partnerOptions;
-    return partnerOptions.filter((p) =>
+    const base =
+      partnerListMode === "all" ? partnerOptions : matchingPartners;
+    if (!q) return base;
+    return base.filter((p) =>
       String(p.name || "").toLowerCase().includes(q)
     );
-  }, [partnerQuery, partnerOptions]);
+  }, [partnerQuery, partnerOptions, matchingPartners, partnerListMode]);
 
   const personTasks = useMemo(() => {
     const list = tasks
@@ -449,7 +492,7 @@ export default function Page() {
         title: newTask.title || TASK_TITLES[0],
         situation: newTask.situation ? newTask.situation : null,
         isImpromptu: newTask.isImpromptu || "Нет",
-        priority: Number(newTask.priority ?? 2),
+        taskNumber: Number(newTask.taskNumber ?? 2),
         assignments,
       };
 
@@ -462,7 +505,7 @@ export default function Page() {
         title: TASK_TITLES[0],
         taskDate: "",
         isImpromptu: "Нет",
-        priority: 2,
+        taskNumber: 2,
         situation: "",
         myRole: "Проводящий",
         partnerId: "",
@@ -532,31 +575,6 @@ export default function Page() {
                 {person.name}
               </h1>
 
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Pill className="bg-slate-100 text-slate-700 ring-1 ring-slate-200">
-                  Группа: {person.groupNumber ?? "—"}
-                </Pill>
-
-                <Pill
-                  className={
-                    person.studyStatus === "Да"
-                      ? "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200"
-                      : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
-                  }
-                >
-                  Изучение: {person.studyStatus || "—"}
-                </Pill>
-
-                <Pill
-                  className={
-                    person.impromptuStatus === "Да"
-                      ? "bg-violet-50 text-violet-900 ring-1 ring-violet-200"
-                      : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
-                  }
-                >
-                  Экспромт: {person.impromptuStatus || "—"}
-                </Pill>
-              </div>
             </div>
           </div>
 
@@ -610,19 +628,6 @@ export default function Page() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setProfileEdit((v) => !v)}
-                  className={clsx(
-                    "rounded-2xl px-3 py-2 text-sm font-medium transition",
-                    profileEdit
-                      ? "bg-slate-900 text-white hover:opacity-90"
-                      : "bg-white text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
-                  )}
-                >
-                  {profileEdit ? "Готово" : "Редактировать"}
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setDeleteConfirmOpen((v) => !v)}
                   className="rounded-2xl px-3 py-2 text-sm font-medium bg-white text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50"
                   title="Удалить человека"
@@ -634,93 +639,101 @@ export default function Page() {
           >
             <div className="grid grid-cols-1 gap-4">
               <Labeled label="Имя">
-                {profileEdit ? (
-                  <Input
-                    value={person.name || ""}
-                    onChange={(e) => updatePerson("name", e.target.value)}
-                  />
-                ) : (
-                  <ReadLine>{person.name || "—"}</ReadLine>
-                )}
+                <Input
+                  value={person.name || ""}
+                  onChange={(e) => updatePerson("name", e.target.value)}
+                />
               </Labeled>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Labeled label="Пол">
-                  {profileEdit ? (
-                    <Select
-                      value={person.gender || "М"}
-                      onChange={(e) => updatePerson("gender", e.target.value)}
-                    >
-                      <option value="М">М</option>
-                      <option value="Ж">Ж</option>
-                    </Select>
-                  ) : (
-                    <ReadLine>{person.gender || "—"}</ReadLine>
-                  )}
+                  <Select
+                    value={person.gender || "М"}
+                    onChange={(e) => updatePerson("gender", e.target.value)}
+                  >
+                    <option value="М">М</option>
+                    <option value="Ж">Ж</option>
+                  </Select>
                 </Labeled>
 
                 <Labeled label="Группа">
-                  {profileEdit ? (
-                    <Input
-                      inputMode="numeric"
-                      value={person.groupNumber ?? ""}
-                      onChange={(e) =>
-                        updatePerson("groupNumber", Number(e.target.value))
-                      }
-                    />
-                  ) : (
-                    <ReadLine>{person.groupNumber ?? "—"}</ReadLine>
-                  )}
+                  <Input
+                    inputMode="numeric"
+                    value={person.groupNumber ?? ""}
+                    onChange={(e) =>
+                      updatePerson("groupNumber", Number(e.target.value))
+                    }
+                  />
                 </Labeled>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Labeled label="Изучение">
-                  {profileEdit ? (
-                    <Select
-                      value={person.studyStatus || "Нет"}
-                      onChange={(e) => updatePerson("studyStatus", e.target.value)}
-                    >
-                      {YES_NO.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </Select>
-                  ) : (
-                    <ReadLine>{person.studyStatus || "—"}</ReadLine>
-                  )}
+                  <Select
+                    value={person.studyStatus || "Нет"}
+                    onChange={(e) => updatePerson("studyStatus", e.target.value)}
+                  >
+                    {YES_NO.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </Select>
                 </Labeled>
 
                 <Labeled label="Экспромт">
-                  {profileEdit ? (
-                    <Select
-                      value={person.impromptuStatus || "Нет"}
-                      onChange={(e) =>
-                        updatePerson("impromptuStatus", e.target.value)
-                      }
-                    >
-                      {YES_NO.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </Select>
-                  ) : (
-                    <ReadLine>{person.impromptuStatus || "—"}</ReadLine>
-                  )}
+                  <Select
+                    value={person.impromptuStatus || "Нет"}
+                    onChange={(e) =>
+                      updatePerson("impromptuStatus", e.target.value)
+                    }
+                  >
+                    {YES_NO.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </Select>
+                </Labeled>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Labeled label="Ограничения">
+                  <Select
+                    value={person.limitationsStatus || "Нет"}
+                    onChange={(e) =>
+                      updatePerson("limitationsStatus", e.target.value)
+                    }
+                  >
+                    {YES_NO.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </Select>
+                </Labeled>
+
+                <Labeled label="Участвует">
+                  <Select
+                    value={person.participationStatus || "Нет"}
+                    onChange={(e) =>
+                      updatePerson("participationStatus", e.target.value)
+                    }
+                  >
+                    {YES_NO.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </Select>
                 </Labeled>
               </div>
 
               <Labeled label="Заметки">
-                {profileEdit ? (
-                  <Textarea
-                    value={person.notes || ""}
-                    onChange={(e) => updatePerson("notes", e.target.value)}
-                  />
-                ) : (
-                  <ReadBlock>{person.notes?.trim() ? person.notes : "—"}</ReadBlock>
-                )}
+                <Textarea
+                  value={person.notes || ""}
+                  onChange={(e) => updatePerson("notes", e.target.value)}
+                />
               </Labeled>
 
               {/* Inline подтверждение удаления */}
@@ -844,12 +857,12 @@ export default function Page() {
                     </Select>
                   </Labeled>
 
-                  <Labeled label="Приоритет">
+                  <Labeled label="Номер задания">
                     <Input
                       inputMode="numeric"
-                      value={newTask.priority ?? ""}
+                      value={newTask.taskNumber ?? ""}
                       onChange={(e) =>
-                        setNewTask((p) => ({ ...p, priority: Number(e.target.value) }))
+                        setNewTask((p) => ({ ...p, taskNumber: Number(e.target.value) }))
                       }
                     />
                   </Labeled>
@@ -892,6 +905,29 @@ export default function Page() {
                         Напарник (поиск)
                       </div>
 
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="partner-mode"
+                            value="all"
+                            checked={partnerListMode === "all"}
+                            onChange={() => setPartnerListMode("all")}
+                          />
+                          Показать всех
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="partner-mode"
+                            value="match"
+                            checked={partnerListMode === "match"}
+                            onChange={() => setPartnerListMode("match")}
+                          />
+                          Подходящие напарники
+                        </label>
+                      </div>
+
                       <div ref={partnerWrapRef} className="mt-3 relative">
                         <div className="flex items-center gap-2">
                           <input
@@ -901,11 +937,7 @@ export default function Page() {
                               setPartnerListOpen(true);
                             }}
                             onFocus={() => setPartnerListOpen(true)}
-                            placeholder={
-                              partnerSuggestion?.name
-                                ? `${partnerSuggestion.name}`
-                                : "Начни вводить имя напарника..."
-                            }
+                            placeholder="Введите имя напарника..."
                             className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-300"
                           />
 
@@ -930,7 +962,9 @@ export default function Page() {
                             <div className="max-h-64 overflow-auto p-1">
                               {filteredPartners.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-slate-500">
-                                  Ничего не найдено
+                                  {partnerListMode === "match"
+                                    ? "Нет подходящих напарников"
+                                    : "Ничего не найдено"}
                                 </div>
                               ) : (
                                 filteredPartners.map((p) => (
@@ -949,8 +983,22 @@ export default function Page() {
                                         : ""
                                     )}
                                   >
-                                    <div className="font-medium text-slate-900">
-                                      {p.name}
+                                    <div className="flex items-center gap-2">
+                                      {partnerListMode === "match" ? (
+                                        <span
+                                          className={clsx(
+                                            "h-2.5 w-2.5 rounded-full",
+                                            partnerRank.get(String(p.id)) === "good"
+                                              ? "bg-emerald-500"
+                                              : partnerRank.get(String(p.id)) === "mid"
+                                              ? "bg-amber-500"
+                                              : "bg-rose-500"
+                                          )}
+                                        />
+                                      ) : null}
+                                      <div className="font-medium text-slate-900">
+                                        {p.name}
+                                      </div>
                                     </div>
                                     <div className="text-xs text-slate-500">
                                       Группа: {p.groupNumber ?? "—"}
@@ -1207,7 +1255,7 @@ function TaskCard({
                 Экспромт: {task.isImpromptu || "—"}
               </span>
               <span className="rounded-full bg-slate-50 px-2 py-1 ring-1 ring-slate-200">
-                Приоритет: {task.priority ?? "—"}
+                Номер задания: {task.taskNumber ?? "—"}
               </span>
               <span className="rounded-full bg-slate-50 px-2 py-1 ring-1 ring-slate-200">
                 Ваша роль: {assignment.role || "—"}
@@ -1218,7 +1266,7 @@ function TaskCard({
             </div>
 
             <div className="mt-3">
-              <div className="text-xs font-medium text-slate-500">Напарники</div>
+              <div className="text-xs font-medium text-slate-500">Напарник</div>
               <div className="mt-1 text-sm text-slate-700">
                 {partners.length ? partners.join(", ") : "Нет"}
               </div>
@@ -1299,14 +1347,14 @@ function TaskCard({
               </Select>
             </Labeled>
 
-            <Labeled label="Приоритет">
+            <Labeled label="Номер задания">
               <Input
                 inputMode="numeric"
-                value={task.priority ?? ""}
+                value={task.taskNumber ?? ""}
                 onChange={(e) =>
                   onTaskChange((t) => ({
                     ...t,
-                    priority: Number(e.target.value),
+                    taskNumber: Number(e.target.value),
                   }))
                 }
               />
@@ -1468,3 +1516,7 @@ function TaskCard({
     </div>
   );
 }
+
+
+
+

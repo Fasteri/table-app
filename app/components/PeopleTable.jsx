@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -310,7 +310,8 @@ export default function PeopleTable({
     const peopleSet = new Set((people || []).map((p) => String(p.id)));
     return (localTasks || [])
       .map((t) => {
-        const nextAssignments = (t.assignments || []).filter((a) =>
+        const baseAssignments = Array.isArray(t.assignments) ? t.assignments : [];
+        const nextAssignments = baseAssignments.filter((a) =>
           peopleSet.has(String(a.personId))
         );
         return { ...t, assignments: nextAssignments };
@@ -383,11 +384,13 @@ export default function PeopleTable({
           status: perStatus,
           title: t.title || "-",
           situation: t.situation || "",
-          priority: Number(t.priority ?? 0),
+          taskNumber: Number(t.taskNumber ?? 0),
           role: a.role || "-",
           personId: p.id,
           name: p.name,
           group: p.groupNumber,
+          participationStatus: p.participationStatus || "Да",
+          limitationsStatus: p.limitationsStatus || "Нет",
           notes: p.notes || "",
         });
 
@@ -402,8 +405,8 @@ export default function PeopleTable({
       ((parseDateOrNull(a.date)?.getTime() ?? 0) -
         (parseDateOrNull(b.date)?.getTime() ?? 0)) *
       dateSortFactor;
-    const sortByPriorityAndRole = (a, b) => {
-      const pr = (a.priority ?? 0) - (b.priority ?? 0);
+    const sortBytaskNumberAndRole = (a, b) => {
+      const pr = (a.taskNumber ?? 0) - (b.taskNumber ?? 0);
       if (pr !== 0) return pr;
       const rr = roleOrder(a.role) - roleOrder(b.role);
       if (rr !== 0) return rr;
@@ -417,13 +420,13 @@ export default function PeopleTable({
         if (aOrder !== bOrder) return aOrder - bOrder;
         const d = sortByDate(a, b);
         if (d !== 0) return d;
-        return sortByPriorityAndRole(a, b);
+        return sortBytaskNumberAndRole(a, b);
       });
     } else {
       assigned.sort((a, b) => {
         const d = sortByDate(a, b);
         if (d !== 0) return d;
-        return sortByPriorityAndRole(a, b);
+        return sortBytaskNumberAndRole(a, b);
       });
     }
 
@@ -450,6 +453,8 @@ export default function PeopleTable({
         personId: p.id,
         name: p.name,
         group: p.groupNumber,
+        participationStatus: p.participationStatus || "Да",
+        limitationsStatus: p.limitationsStatus || "Нет",
         notes: p.notes || "",
       });
     }
@@ -481,7 +486,8 @@ export default function PeopleTable({
       d.setHours(0, 0, 0, 0);
       if (d < from) continue;
 
-      for (const a of t.assignments || []) {
+      const baseAssignments = Array.isArray(t.assignments) ? t.assignments : [];
+      for (const a of baseAssignments) {
         const arr = map.get(String(a.personId)) || [];
         arr.push({
           id: t.id,
@@ -604,6 +610,8 @@ export default function PeopleTable({
     groupNumber: 1,
     studyStatus: "Нет",
     impromptuStatus: "Нет",
+    limitationsStatus: "Нет",
+    participationStatus: "Да",
     notes: "",
   });
 
@@ -618,6 +626,8 @@ export default function PeopleTable({
       groupNumber: 1,
       studyStatus: "Нет",
       impromptuStatus: "Нет",
+      limitationsStatus: "Нет",
+      participationStatus: "Да",
       notes: "",
     });
     setAddErr("");
@@ -856,6 +866,12 @@ export default function PeopleTable({
               const isAssigned = r.kind === "assigned";
               const isOpen = openKey === rowKey;
               const isStatusOpen = statusOpenKey === rowKey;
+              const rowHighlight =
+                r.limitationsStatus === "Да" && r.participationStatus === "Нет"
+                  ? "bg-orange-200/70"
+                  : r.participationStatus === "Нет"
+                  ? "bg-yellow-100"
+                  : "";
 
               const personTasks = tasksByPerson.get(String(r.personId)) || [];
               const title = `Задания: ${r.name}`;
@@ -866,7 +882,7 @@ export default function PeopleTable({
                   onClick={() => router.push(`/person?id=${r.personId}`)}
                   className={clsx(
                     "border-t border-slate-200 hover:bg-slate-50 cursor-pointer",
-                    !isAssigned ? "bg-slate-50/60" : ""
+                    rowHighlight ? rowHighlight : !isAssigned ? "bg-slate-50/60" : ""
                   )}
                 >
                   <td className="px-3 py-3 align-middle text-slate-500">
@@ -1031,8 +1047,17 @@ export default function PeopleTable({
                   </td>
 
                   <td className="px-3 py-3 align-middle">
-                    <div className="truncate" title={r.title}>
-                      {r.title}
+                    <div
+                      className="truncate"
+                      title={
+                        r.title && r.title !== "—"
+                          ? `${r.taskNumber ?? "—"}. ${r.title}`
+                          : r.title
+                      }
+                    >
+                      {r.title && r.title !== "—"
+                        ? `${r.taskNumber ?? "—"}. ${r.title}`
+                        : r.title}
                     </div>
                     {r.situation ? (
                       <div className="mt-1 truncate text-xs text-slate-500">
@@ -1220,6 +1245,41 @@ export default function PeopleTable({
               </Labeled>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Labeled label="Ограничения">
+                <Select
+                  value={form.limitationsStatus}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, limitationsStatus: e.target.value }))
+                  }
+                >
+                  {YES_NO.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </Select>
+              </Labeled>
+
+              <Labeled label="Участвует">
+                <Select
+                  value={form.participationStatus}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      participationStatus: e.target.value,
+                    }))
+                  }
+                >
+                  {YES_NO.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </Select>
+              </Labeled>
+            </div>
+
             <Labeled label="Заметки">
               <Textarea
                 value={form.notes}
@@ -1291,3 +1351,4 @@ export default function PeopleTable({
     </section>
   );
 }
+

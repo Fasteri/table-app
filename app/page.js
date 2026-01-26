@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PeopleTable from "@/app/components/PeopleTable";
-import { apiGetDb } from "@/app/lib/dbClient";
+import { apiGetDb, openDataDir } from "@/app/lib/dbClient";
 
 export default function Page() {
   const [db, setDb] = useState(null);
@@ -66,16 +66,25 @@ export default function Page() {
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-          Данные:{" "}
-          <span className="font-medium text-slate-900">
-            {db.people?.length || 0}
-          </span>{" "}
-          людей,{" "}
-          <span className="font-medium text-slate-900">
-            {db.tasks?.length || 0}
-          </span>{" "}
-          заданий
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            Данные:{" "}
+            <span className="font-medium text-slate-900">
+              {db.people?.length || 0}
+            </span>{" "}
+            людей,{" "}
+            <span className="font-medium text-slate-900">
+              {db.tasks?.length || 0}
+            </span>{" "}
+            заданий
+          </div>
+          <button
+            type="button"
+            onClick={openDataDir}
+            className="rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
+          >
+            Открыть папку данных
+          </button>
         </div>
       </header>
 

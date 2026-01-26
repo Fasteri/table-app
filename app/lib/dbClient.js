@@ -48,3 +48,12 @@ export async function apiCreatePerson(person) {
   }
   return json?.person;
 }
+
+export async function openDataDir() {
+  const core = await getTauriCore();
+  if (core.isTauri()) {
+    return core.invoke("open_data_dir");
+  }
+  alert("Открытие папки доступно только в приложении.");
+  return null;
+}
