@@ -52,7 +52,12 @@ export async function apiCreatePerson(person) {
 export async function openDataDir() {
   const core = await getTauriCore();
   if (core.isTauri()) {
-    return core.invoke("open_data_dir");
+    try {
+      return await core.invoke("open_data_dir");
+    } catch (e) {
+      alert(String(e?.message || e));
+      return null;
+    }
   }
   alert("Открытие папки доступно только в приложении.");
   return null;

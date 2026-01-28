@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
+use tauri_plugin_shell::ShellExt;
 
 fn db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
   let dir = app
@@ -60,7 +61,10 @@ fn open_data_dir(app: tauri::AppHandle) -> Result<Value, String> {
     .app_data_dir()
     .map_err(|e| format!("APP_DATA_DIR_FAILED: {e}"))?;
   fs::create_dir_all(&dir).map_err(|e| format!("DB_DIR_CREATE_FAILED: {e}"))?;
-  open::that(&dir).map_err(|e| format!("OPEN_DIR_FAILED: {e}"))?;
+  app
+    .shell()
+    .open(dir.to_string_lossy().to_string(), None)
+    .map_err(|e| format!("OPEN_DIR_FAILED: {e}"))?;
   Ok(json!({ "ok": true, "path": dir.to_string_lossy() }))
 }
 
@@ -196,6 +200,7 @@ pub fn run() {
       }
       Ok(())
     })
+    .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
       get_db,
       put_db,

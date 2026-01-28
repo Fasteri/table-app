@@ -216,16 +216,6 @@ export default function Page() {
       .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
   }, [eligiblePeople]);
 
-  const partnerSuggestion = useMemo(() => {
-    if (!person) return null;
-    const myGender = String(person.gender || "");
-    const list = eligiblePeople
-      .filter((p) => String(p.gender || "") === myGender)
-      .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
-    return list[0] || null;
-  }, [eligiblePeople, person]);
-
   const matchingPartners = useMemo(() => {
     if (!person) return [];
     const myGender = String(person.gender || "");
@@ -234,14 +224,8 @@ export default function Page() {
     );
 
     const lastTogetherByPartner = new Map();
+    const lastRoleByPerson = new Map();
     const lastAnyByPerson = new Map();
-    const recentCountByPerson = new Map();
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const from = new Date(today);
-    from.setMonth(from.getMonth() - 6);
-    const fromTs = from.getTime();
 
     for (const t of tasks || []) {
       const d = parseDateOrNull(t.taskDate);
@@ -253,13 +237,15 @@ export default function Page() {
       for (const a of assignments) {
         const pid = String(a.personId);
         const prev = lastAnyByPerson.get(pid) || 0;
-        if (ts > prev) lastAnyByPerson.set(pid, ts);
-        if (ts >= fromTs) {
-          recentCountByPerson.set(pid, (recentCountByPerson.get(pid) || 0) + 1);
+        if (ts > prev) {
+          lastAnyByPerson.set(pid, ts);
+          lastRoleByPerson.set(pid, a.role || "");
         }
       }
 
-      const hasMe = assignments.some((a) => String(a.personId) === String(person.id));
+      const hasMe = assignments.some(
+        (a) => String(a.personId) === String(person.id)
+      );
       if (!hasMe) continue;
       for (const a of assignments) {
         const pid = String(a.personId);
@@ -269,51 +255,40 @@ export default function Page() {
       }
     }
 
-    return candidates
-      .slice()
-      .sort((a, b) => {
-        const aId = String(a.id);
-        const bId = String(b.id);
-        const aNever = !lastTogetherByPartner.has(aId);
-        const bNever = !lastTogetherByPartner.has(bId);
-        if (aNever !== bNever) return aNever ? -1 : 1;
+    const cat1 = [];
+    const cat2 = [];
+    const cat3 = [];
 
-        if (aNever && bNever) {
-          const aCnt = recentCountByPerson.get(aId) || 0;
-          const bCnt = recentCountByPerson.get(bId) || 0;
-          if (aCnt !== bCnt) return aCnt - bCnt;
-          const aLast = lastAnyByPerson.get(aId) || 0;
-          const bLast = lastAnyByPerson.get(bId) || 0;
-          if (aLast !== bLast) return aLast - bLast;
-          return (a.name || "").localeCompare(b.name || "", "ru");
-        }
+    for (const p of candidates) {
+      const pid = String(p.id);
+      const neverTogether = !lastTogetherByPartner.has(pid);
+      const hasAny = lastAnyByPerson.has(pid);
+      const lastRole = lastRoleByPerson.get(pid) || "";
 
-        const aTogether = lastTogetherByPartner.get(aId) || 0;
-        const bTogether = lastTogetherByPartner.get(bId) || 0;
-        if (aTogether !== bTogether) return aTogether - bTogether;
+      if (neverTogether && !hasAny) {
+        cat1.push(p);
+        continue;
+      }
+      if (neverTogether && lastRole === "Проводящий") {
+        cat2.push(p);
+        continue;
+      }
+      if (!neverTogether && lastRole === "Проводящий") {
+        cat3.push(p);
+      }
+    }
 
-        const aCnt = recentCountByPerson.get(aId) || 0;
-        const bCnt = recentCountByPerson.get(bId) || 0;
-        if (aCnt !== bCnt) return aCnt - bCnt;
-
-        const aLast = lastAnyByPerson.get(aId) || 0;
-        const bLast = lastAnyByPerson.get(bId) || 0;
-        if (aLast !== bLast) return aLast - bLast;
-        return (a.name || "").localeCompare(b.name || "", "ru");
-      });
-  }, [eligiblePeople, person, tasks]);
-
-  const partnerRank = useMemo(() => {
-    const map = new Map();
-    const total = matchingPartners.length;
-    if (total === 0) return map;
-    const chunk = Math.max(1, Math.ceil(total / 3));
-    matchingPartners.forEach((p, idx) => {
-      const tier = idx < chunk ? "good" : idx < chunk * 2 ? "mid" : "low";
-      map.set(String(p.id), tier);
+    cat1.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    cat2.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    cat3.sort((a, b) => {
+      const ta = lastTogetherByPartner.get(String(a.id)) || 0;
+      const tb = lastTogetherByPartner.get(String(b.id)) || 0;
+      if (ta !== tb) return ta - tb;
+      return (a.name || "").localeCompare(b.name || "", "ru");
     });
-    return map;
-  }, [matchingPartners]);
+
+    return [...cat1, ...cat2, ...cat3];
+  }, [eligiblePeople, person, tasks]);
 
   const selectedPartner = useMemo(() => {
     if (!newTask.partnerId) return null;
@@ -983,22 +958,8 @@ export default function Page() {
                                         : ""
                                     )}
                                   >
-                                    <div className="flex items-center gap-2">
-                                      {partnerListMode === "match" ? (
-                                        <span
-                                          className={clsx(
-                                            "h-2.5 w-2.5 rounded-full",
-                                            partnerRank.get(String(p.id)) === "good"
-                                              ? "bg-emerald-500"
-                                              : partnerRank.get(String(p.id)) === "mid"
-                                              ? "bg-amber-500"
-                                              : "bg-rose-500"
-                                          )}
-                                        />
-                                      ) : null}
-                                      <div className="font-medium text-slate-900">
-                                        {p.name}
-                                      </div>
+                                    <div className="font-medium text-slate-900">
+                                      {p.name}
                                     </div>
                                     <div className="text-xs text-slate-500">
                                       Группа: {p.groupNumber ?? "—"}
