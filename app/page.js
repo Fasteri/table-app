@@ -5,6 +5,7 @@ import PeopleTable from "@/app/components/PeopleTable";
 import { apiGetDb, openDataDir } from "@/app/lib/dbClient";
 
 export default function Page() {
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.1.2";
   const [db, setDb] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,6 +78,9 @@ export default function Page() {
               {db.tasks?.length || 0}
             </span>{" "}
             заданий
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            Версия: <span className="font-medium text-slate-900">{appVersion}</span>
           </div>
           <button
             type="button"
