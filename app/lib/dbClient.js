@@ -53,7 +53,9 @@ export async function openDataDir() {
   const core = await getTauriCore();
   if (core.isTauri()) {
     try {
-      return await core.invoke("open_data_dir");
+      const res = await core.invoke("open_data_dir");
+      alert(`Открываю папку:\n${res?.path || ""}`);
+      return res;
     } catch (e) {
       alert(String(e?.message || e));
       return null;

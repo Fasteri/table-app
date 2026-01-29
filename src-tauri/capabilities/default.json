@@ -11,7 +11,8 @@
     {
       "identifier": "shell:allow-open",
       "allow": [
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "$HOME/Library/Application Support/**" }
       ]
     }
   ]
