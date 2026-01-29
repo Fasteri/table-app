@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGetDb, apiPutDb } from "@/app/lib/dbClient";
+import { apiGetDb, apiPutDb, openDataDir } from "@/app/lib/dbClient";
 
 /* ====== Константы ====== */
 
@@ -554,6 +554,18 @@ export default function Page() {
           </div>
 
         <div className="shrink-0 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              alert("Кнопка папки нажата");
+              openDataDir();
+            }}
+            className="h-10 rounded-2xl px-4 text-sm font-medium bg-white text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
+          >
+            Папка данных
+          </button>
           <button
             type="button"
             onClick={() => router.push("/")}
