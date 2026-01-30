@@ -56,18 +56,15 @@ export async function openDataDir() {
       console.log("[openDataDir] invoking");
       const res = await core.invoke("open_data_dir");
       console.log("[openDataDir] result", res);
-      alert(`Путь папки:\n${res?.path || ""}`);
-      const { open } = await import("@tauri-apps/plugin-shell");
-      await open(res?.path || "");
-      alert("Команда открытия отправлена");
-      return res;
+      return { ok: true, path: res?.path || "" };
     } catch (e) {
       console.error("[openDataDir] error", e);
-      alert(String(e?.message || e));
-      return null;
+      return { ok: false, error: String(e?.message || e) };
     }
   }
   console.warn("[openDataDir] not tauri");
-  alert("Открытие папки доступно только в приложении (Tauri не найден).");
-  return null;
+  return {
+    ok: false,
+    error: "Открытие папки доступно только в приложении (Tauri не найден).",
+  };
 }
