@@ -10,6 +10,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState("");
+  const [debugMsg, setDebugMsg] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -87,13 +88,18 @@ export default function Page() {
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              alert("Кнопка нажата");
+              setDebugMsg(`Кнопка нажата: ${new Date().toLocaleTimeString()}`);
               openDataDir();
             }}
             className="rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             Открыть папку данных
           </button>
+          {debugMsg ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+              {debugMsg}
+            </div>
+          ) : null}
         </div>
       </header>
 
