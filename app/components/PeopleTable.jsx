@@ -734,10 +734,19 @@ export default function PeopleTable({
             />
           </div>
 
-          <div className="flex items-center gap-3" />
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => router.push("/schedule")}
+              className="rounded-2xl bg-white px-4 py-2 text-sm font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
+              title="Открыть график"
+            >
+              График
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <input
               inputMode="numeric"
@@ -811,7 +820,6 @@ export default function PeopleTable({
             Сброс
           </button>
           </div>
-
           <button
             type="button"
             onClick={() => {
