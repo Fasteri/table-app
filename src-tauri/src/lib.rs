@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
+use std::process::Command;
 
 fn db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
   let dir = app
@@ -61,10 +61,20 @@ fn open_data_dir(app: tauri::AppHandle) -> Result<Value, String> {
     .app_data_dir()
     .map_err(|e| format!("APP_DATA_DIR_FAILED: {e}"))?;
   fs::create_dir_all(&dir).map_err(|e| format!("DB_DIR_CREATE_FAILED: {e}"))?;
-  app
-    .shell()
-    .open(dir.to_string_lossy().to_string(), None)
-    .map_err(|e| format!("OPEN_DIR_FAILED: {e}"))?;
+  let dir_str = dir.to_string_lossy().to_string();
+
+  let status = if cfg!(target_os = "windows") {
+    Command::new("explorer").arg(&dir_str).status()
+  } else if cfg!(target_os = "macos") {
+    Command::new("open").arg(&dir_str).status()
+  } else {
+    Command::new("xdg-open").arg(&dir_str).status()
+  }
+  .map_err(|e| format!("OPEN_DIR_FAILED: {e}"))?;
+
+  if !status.success() {
+    return Err("OPEN_DIR_FAILED: non-zero exit".to_string());
+  }
   Ok(json!({ "ok": true, "path": dir.to_string_lossy() }))
 }
 
