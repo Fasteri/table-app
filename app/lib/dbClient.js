@@ -56,7 +56,10 @@ export async function openDataDir() {
       console.log("[openDataDir] invoking");
       const res = await core.invoke("open_data_dir");
       console.log("[openDataDir] result", res);
-      alert(`Открываю папку:\n${res?.path || ""}`);
+      alert(`Путь папки:\n${res?.path || ""}`);
+      const { open } = await import("@tauri-apps/plugin-shell");
+      await open(res?.path || "");
+      alert("Команда открытия отправлена");
       return res;
     } catch (e) {
       console.error("[openDataDir] error", e);
