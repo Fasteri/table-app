@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiCreatePerson, apiPutDb } from "@/app/lib/dbClient";
+import { apiCreatePerson, apiPutDb, apiUpdateTaskStatus, apiDeleteTask, apiUpdateTask } from "@/app/lib/dbClient";
 
 /* ================= helpers ================= */
 
@@ -11,8 +11,11 @@ function clsx(...a) {
 }
 
 function parseDateOrNull(s) {
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (!s) return null;
+  const raw = normalizeDateOnly(s);
+  if (!raw) return null;
+  const [y, m, d] = raw.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
 }
 
 // 6 месяцев от текущей даты, будущее включено
@@ -34,6 +37,27 @@ function taskDateClassByStatus(status) {
   return "bg-slate-100 text-slate-600";
 }
 
+function formatDateShort(value) {
+  if (!value) return "—";
+  const raw = normalizeDateOnly(value);
+  if (!raw) return String(value);
+  const [y, m, d] = raw.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("ru-RU");
+}
+
+function normalizeDateOnly(value) {
+  if (!value) return "";
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return raw.slice(0, 10);
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function DatePill({ date, status, className = "" }) {
   return (
     <span
@@ -43,7 +67,7 @@ function DatePill({ date, status, className = "" }) {
         className
       )}
     >
-      {date}
+      {formatDateShort(date)}
     </span>
   );
 }
@@ -382,6 +406,7 @@ export default function PeopleTable({
           taskId: t.id,
           date: t.taskDate || "-",
           status: perStatus,
+          isImpromptu: t.isImpromptu || "Нет",
           title: t.title || "-",
           situation: t.situation || "",
           taskNumber: Number(t.taskNumber ?? 0),
@@ -494,6 +519,8 @@ export default function PeopleTable({
           taskDate: t.taskDate || "-",
           title: t.title || "-",
           status: a.status || "assigned",
+          role: a.role || "-",
+          isImpromptu: t.isImpromptu || "Нет",
         });
         map.set(String(a.personId), arr);
       }
@@ -512,38 +539,107 @@ export default function PeopleTable({
   }, [tasksState, from]);
 
   // удалить assignment у этого человека, и если в задаче больше нет assignments -> удалить task
-  function removeAssignment(taskId, personId, role) {
-    updateTasks((prev) =>
-      (prev || [])
-        .map((t) => {
-          if (t.id !== taskId) return t;
-          const nextAssignments = (t.assignments || []).filter((a) => {
-            const samePerson = String(a.personId) === String(personId);
-            const sameRole = String(a.role || "") === String(role || "");
-            return !(samePerson && sameRole);
-          });
-          return { ...t, assignments: nextAssignments };
-        })
-        .filter((t) => (t.assignments || []).length > 0)
-    );
+  function removeAssignment(info) {
+    const { taskId, personId, role } = info || {};
+    if (!taskId) {
+      console.error("Remove assignment failed: missing task id", {
+        taskId,
+        personId,
+        role,
+      });
+      return;
+    }
+    const baseTasks = Array.isArray(localTasks) ? localTasks : [];
+    const resolvedTask = baseTasks.find((t) => String(t.id) === String(taskId));
+    if (!resolvedTask) {
+      console.error("Remove assignment failed: task not found", {
+        taskId,
+        personId,
+        role,
+      });
+      return;
+    }
+
+    const resolvedId = resolvedTask.id;
+
+      let nextAssignments = (resolvedTask.assignments || []).filter((a) => {
+        const samePerson = String(a.personId) === String(personId);
+        const sameRole = String(a.role || "") === String(role || "");
+        return !(samePerson && sameRole);
+      });
+      const nextConductor = nextAssignments.find(
+        (a) => a.role === "Проводящий"
+      );
+      const nextAssistant = nextAssignments.find(
+        (a) => a.role === "Помощник"
+      );
+      const nextStatus = nextAssignments[0]?.status || resolvedTask.status;
+      const nextTaskDate = normalizeDateOnly(resolvedTask.taskDate);
+
+      setLocalTasks((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        const next = base.map((t) => {
+          if (t.id !== resolvedId) return t;
+          return {
+            ...t,
+            assignments: nextAssignments,
+            conductorId: nextConductor?.personId,
+            assistantId: nextAssistant?.personId || null,
+            status: nextStatus,
+            taskDate: nextTaskDate || t.taskDate,
+          };
+        });
+        return next.filter((t) => (t.assignments || []).length > 0);
+      });
+
+      if (!nextAssignments.length && resolvedId) {
+        apiDeleteTask(resolvedId).then((res) => {
+          if (res?.ok === false) {
+            console.error("Delete task failed", res);
+          }
+        }).catch((e) => {
+          console.error("Delete task failed", e);
+        });
+      } else if (resolvedId) {
+        apiUpdateTask(resolvedId, {
+          ...resolvedTask,
+          assignments: nextAssignments,
+          conductorId: nextConductor?.personId,
+          assistantId: nextAssistant?.personId || null,
+          status: nextStatus,
+          taskDate: nextTaskDate || resolvedTask.taskDate,
+        }).catch((e) => {
+          console.error("Update task failed", e);
+        });
+      }
   }
 
   // смена статуса: только нужного человека в нужной роли
   function setAssignmentStatus(taskId, personId, role, newStatus) {
-    updateTasks((prev) =>
-      (prev || []).map((t) => {
+    setLocalTasks((prev) => {
+      const base = Array.isArray(prev) ? prev : [];
+      const next = base.map((t) => {
         if (t.id !== taskId) return t;
 
-        const nextAssignments = (t.assignments || []).map((a) => {
-          const samePerson = String(a.personId) === String(personId);
-          const sameRole = String(a.role || "") === String(role || "");
-          if (!samePerson || !sameRole) return a;
-          return { ...a, status: newStatus };
-        });
+        const baseAssignments = Array.isArray(t.assignments)
+          ? t.assignments
+          : t.assignments
+          ? [t.assignments]
+          : [];
+        const nextAssignments = baseAssignments.map((a) => ({
+          ...a,
+          status: newStatus,
+        }));
 
-        return { ...t, assignments: nextAssignments };
-      })
-    );
+        return { ...t, status: newStatus, assignments: nextAssignments };
+      });
+
+      return next;
+    });
+
+    apiUpdateTaskStatus({ taskId, status: newStatus }).catch((e) => {
+      console.error("Status update failed", e);
+    });
   }
 
   // закрытие popover списка заданий (по дате)
@@ -689,7 +785,7 @@ export default function PeopleTable({
 
   function confirmRemove() {
     if (!confirmInfo) return;
-    removeAssignment(confirmInfo.taskId, confirmInfo.personId, confirmInfo.role);
+    removeAssignment(confirmInfo);
     setConfirmOpen(false);
     setConfirmInfo(null);
   }
@@ -784,25 +880,25 @@ export default function PeopleTable({
             Сестры
           </button>
 
-          <button
-            type="button"
-            onClick={() => setImpromptuOnly((prev) => !prev)}
-            className={filterButtonClass(impromptuOnly, "amber")}
-            aria-pressed={impromptuOnly}
-            title="Экспромт: Да"
-          >
-            Экспромт
-          </button>
+            <button
+              type="button"
+              onClick={() => setImpromptuOnly((prev) => !prev)}
+              className={filterButtonClass(impromptuOnly, "violet")}
+              aria-pressed={impromptuOnly}
+              title="Экспромт: Да"
+            >
+              Экспромт
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setStatusSortEnabled((prev) => !prev)}
-            className={filterButtonClass(statusSortEnabled, "violet")}
-            aria-pressed={statusSortEnabled}
-            title="Сортировка по статусу"
-          >
-            По статусу
-          </button>
+            <button
+              type="button"
+              onClick={() => setStatusSortEnabled((prev) => !prev)}
+              className={filterButtonClass(statusSortEnabled, "amber")}
+              aria-pressed={statusSortEnabled}
+              title="Сортировка по статусу"
+            >
+              Статус
+            </button>
 
           <button
             type="button"
@@ -841,7 +937,7 @@ export default function PeopleTable({
             <tr className="border-b border-slate-200 bg-white">
               <th className="w-12 px-3 py-3">№</th>
               <th className="w-[22%] px-3 py-3">Человек</th>
-              <th className="w-40 px-3 py-3 text-center">
+              <th className="w-44 px-3 py-3 text-center">
                 <button
                   type="button"
                   onClick={() =>
@@ -874,6 +970,11 @@ export default function PeopleTable({
               const isAssigned = r.kind === "assigned";
               const isOpen = openKey === rowKey;
               const isStatusOpen = statusOpenKey === rowKey;
+              const isImpromptuConductor =
+                isAssigned &&
+                r.role === "Проводящий" &&
+                String(r.isImpromptu || "Нет") === "Да" &&
+                String(r.status || "") === "done";
               const rowHighlight =
                 r.limitationsStatus === "Да" && r.participationStatus === "Нет"
                   ? "bg-orange-200/70"
@@ -907,7 +1008,7 @@ export default function PeopleTable({
                   </td>
 
                   {/* Дата + карандаш справа */}
-                  <td className="px-3 py-3 text-center align-middle">
+                  <td className="px-2 py-3 text-center align-middle">
                     <div className="relative inline-flex items-center gap-2">
                       {/* Кнопка даты -> список заданий человека (только если есть задания) */}
                       <div className="relative inline-block">
@@ -941,7 +1042,12 @@ export default function PeopleTable({
                             <DatePill
                               date={r.date}
                               status={r.status}
-                              className="cursor-pointer hover:brightness-95"
+                              className={clsx(
+                                "cursor-pointer hover:brightness-95",
+                                isImpromptuConductor
+                                  ? "bg-violet-200 text-violet-950"
+                                  : ""
+                              )}
                             />
                           ) : (
                             <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium bg-slate-100 text-slate-500">
@@ -962,20 +1068,37 @@ export default function PeopleTable({
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              {personTasks.map((t) => (
-                                <div
-                                  key={`${t.id}_${t.taskDate}`}
-                                  className="flex items-center gap-2"
-                                >
-                                  <DatePill date={t.taskDate} status={t.status} />
-                                  <div
-                                    className="min-w-0 flex-1 truncate text-xs text-slate-600"
-                                    title={t.title}
-                                  >
-                                    {t.title}
+                              {personTasks.map((t) => {
+                                const isImpromptuConductorTask =
+                                  t.role === "Проводящий" &&
+                                  String(t.isImpromptu || "Нет") === "Да" &&
+                                  String(t.status || "") === "done";
+                                  return (
+                                    <div
+                                      key={`${t.id}_${t.taskDate}`}
+                                      className="flex items-center gap-2"
+                                    >
+                                    <DatePill
+                                      date={t.taskDate}
+                                      status={t.status}
+                                      className={clsx(
+                                        isImpromptuConductorTask
+                                          ? "bg-violet-200 text-violet-950"
+                                          : ""
+                                      )}
+                                    />
+                                    <div
+                                      className="min-w-0 flex-1 truncate text-xs text-slate-600"
+                                      title={t.title}
+                                    >
+                                      {t.title}
+                                    </div>
+                                    <div className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                                      {t.role || "—"}
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </InlinePopover>
@@ -1003,7 +1126,7 @@ export default function PeopleTable({
                             setStatusOpenKey(rowKey);
                           }}
                           className={clsx(
-                            "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500",
+                            "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1 text-slate-500",
                             isAssigned
                               ? "hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
                               : "opacity-40 cursor-not-allowed"

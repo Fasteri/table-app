@@ -8,24 +8,26 @@ function clsx(...a) {
   return a.filter(Boolean).join(" ");
 }
 
-function parseDateLocal(s) {
-  if (!s) return null;
-  const parts = String(s).split("-");
-  if (parts.length !== 3) return null;
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d))
-    return null;
-  const dt = new Date(y, m - 1, d);
-  return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-function dateKeyLocal(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function normalizeDateKey(value) {
+  if (!value) return "";
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const raw = String(value).trim();
+  if (raw.includes("T")) {
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return "";
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  if (raw.length >= 10) return raw.slice(0, 10);
+  return "";
 }
 
 function formatRole(name) {
@@ -87,23 +89,19 @@ export default function SchedulePage() {
 
   const grouped = useMemo(() => {
     const tasks = db?.tasks || [];
-    const from = fromDate ? parseDateLocal(fromDate) : null;
-    const to = toDate ? parseDateLocal(toDate) : null;
-    if (from) from.setHours(0, 0, 0, 0);
-    if (to) to.setHours(0, 0, 0, 0);
+    const from = fromDate || "";
+    const to = toDate || "";
 
     const result = new Map();
 
     for (const t of tasks) {
-      const d = parseDateLocal(t.taskDate);
-      if (!d) continue;
-      d.setHours(0, 0, 0, 0);
+      const key = normalizeDateKey(t.taskDate);
+      if (!key) continue;
 
-      if (from && !to && dateKeyLocal(d) !== fromDate) continue;
-      if (from && to && (d < from || d > to)) continue;
-      if (!from && to && dateKeyLocal(d) !== toDate) continue;
+      if (from && !to && key !== from) continue;
+      if (from && to && (key < from || key > to)) continue;
+      if (!from && to && key !== to) continue;
 
-      const key = dateKeyLocal(d);
       const arr = result.get(key) || [];
       arr.push(t);
       result.set(key, arr);

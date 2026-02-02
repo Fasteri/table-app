@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGetDb, apiPutDb, openDataDir } from "@/app/lib/dbClient";
+import {
+  apiCreateTask,
+  apiDeleteTask,
+  apiDeletePerson,
+  apiGetDb,
+  apiUpdatePerson,
+  apiUpdateTask,
+} from "@/app/lib/dbClient";
 
 /* ====== Константы ====== */
 
@@ -38,16 +45,63 @@ function clsx(...a) {
   return a.filter(Boolean).join(" ");
 }
 
-function toDateValue(s) {
-  return typeof s === "string" ? s : "";
-}
+  function normalizeDateOnly(value) {
+    if (!value) return "";
+    const raw = String(value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
 
-function parseDateOrNull(s) {
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+  function toDateValue(s) {
+    return normalizeDateOnly(s);
+  }
+  
+  function parseDateOrNull(s) {
+    if (!s) return null;
+    const raw = String(s);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [y, m, d] = raw.split("-").map(Number);
+      return new Date(y, (m || 1) - 1, d || 1);
+    }
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
 
-function statusMeta(value) {
+  function normalizePairAssignments(assignments, meId) {
+    const list = Array.isArray(assignments) ? assignments : [];
+    if (list.length !== 2) return list;
+    const hasConductor = list.some((a) => a.role === "Проводящий");
+    if (hasConductor) return list;
+    const next = list.map((a) => ({ ...a }));
+    const otherIdx = next.findIndex(
+      (a) => String(a.personId) !== String(meId)
+    );
+    const idx = otherIdx >= 0 ? otherIdx : 0;
+    next[idx] = { ...next[idx], role: "Проводящий" };
+    return next;
+  }
+
+  function applyAssignmentsToTask(task, assignments, meId) {
+    if (!assignments) return task;
+    const normalized = normalizePairAssignments(assignments, meId);
+    const conductor = normalized.find((a) => a.role === "Проводящий");
+    const assistant = normalized.find((a) => a.role === "Помощник");
+    const status = normalized[0]?.status || task.status || "assigned";
+    return {
+      ...task,
+      assignments: normalized,
+      conductorId: conductor?.personId,
+      assistantId: assistant?.personId || null,
+      status,
+    };
+  }
+
+  function statusMeta(value) {
   switch (value) {
     case "assigned":
       return {
@@ -83,8 +137,8 @@ function statusMeta(value) {
 }
 
 function sortByDateDesc(a, b) {
-  const ta = new Date(a?.task?.taskDate || 0).getTime();
-  const tb = new Date(b?.task?.taskDate || 0).getTime();
+  const ta = parseDateOrNull(a?.task?.taskDate)?.getTime() ?? 0;
+  const tb = parseDateOrNull(b?.task?.taskDate)?.getTime() ?? 0;
   return tb - ta;
 }
 
@@ -120,6 +174,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
 
   const [statusFilter, setStatusFilter] = useState("all");
+  const dirtyTasksRef = useRef(new Set());
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -337,10 +392,20 @@ export default function Page() {
     setDb((prev) => {
       if (!prev) return prev;
       const nextTasks = (prev.tasks || []).map((t) =>
-        t.id === taskId ? updater(t) : t
+        t.id === taskId
+          ? (() => {
+              const nextTask = updater(t);
+              return applyAssignmentsToTask(
+                nextTask,
+                nextTask.assignments,
+                personId
+              );
+            })()
+          : t
       );
       return { ...prev, tasks: nextTasks };
     });
+    dirtyTasksRef.current.add(String(taskId));
   }
 
   function updateAssignment(taskId, updater) {
@@ -348,15 +413,14 @@ export default function Page() {
       if (!prev) return prev;
       const nextTasks = (prev.tasks || []).map((t) => {
         if (t.id !== taskId) return t;
-        return {
-          ...t,
-          assignments: (t.assignments || []).map((a) =>
-            String(a.personId) === String(personId) ? updater(a) : a
-          ),
-        };
+        const nextAssignments = (t.assignments || []).map((a) =>
+          String(a.personId) === String(personId) ? updater(a) : a
+        );
+        return applyAssignmentsToTask(t, nextAssignments, personId);
       });
       return { ...prev, tasks: nextTasks };
     });
+    dirtyTasksRef.current.add(String(taskId));
   }
 
   function removeFromTask(taskId) {
@@ -364,15 +428,32 @@ export default function Page() {
       if (!prev) return prev;
       const nextTasks = (prev.tasks || []).map((t) => {
         if (t.id !== taskId) return t;
-        return {
-          ...t,
-          assignments: (t.assignments || []).filter(
-            (a) => String(a.personId) !== String(personId)
-          ),
-        };
+        const nextAssignments = (t.assignments || []).filter(
+          (a) => String(a.personId) !== String(personId)
+        );
+        return applyAssignmentsToTask(t, nextAssignments, personId);
       });
       return { ...prev, tasks: nextTasks };
     });
+
+    const task = (db?.tasks || []).find((t) => String(t.id) === String(taskId));
+    if (!task) return;
+    const nextAssignments = (task.assignments || []).filter(
+      (a) => String(a.personId) !== String(personId)
+    );
+    const normalizedTask = applyAssignmentsToTask(task, nextAssignments, personId);
+
+    if (!nextAssignments.length) {
+      apiDeleteTask(taskId).catch((e) => {
+        console.error("Delete task failed", e);
+        setError(String(e?.message || e));
+      });
+    } else {
+      apiUpdateTask(taskId, normalizedTask).catch((e) => {
+        console.error("Update task failed", e);
+        setError(String(e?.message || e));
+      });
+    }
   }
 
   async function save() {
@@ -382,7 +463,15 @@ export default function Page() {
       setSaving(true);
       setError("");
 
-      await apiPutDb(db);
+      await apiUpdatePerson(personId, person);
+
+      const dirtyIds = Array.from(dirtyTasksRef.current);
+      for (const taskId of dirtyIds) {
+        const task = (db.tasks || []).find((t) => String(t.id) === taskId);
+        if (!task) continue;
+        await apiUpdateTask(taskId, task);
+      }
+      dirtyTasksRef.current.clear();
 
       setCollapseSignal((v) => v + 1);
       router.push("/");
@@ -399,23 +488,7 @@ export default function Page() {
       setSaving(true);
       setError("");
 
-      const pid = String(personId);
-
-      const nextPeople = (db.people || []).filter((p) => String(p.id) !== pid);
-
-      const nextTasks = (db.tasks || [])
-        .map((t) => {
-          const nextAssignments = (t.assignments || []).filter(
-            (a) => String(a.personId) !== pid
-          );
-          return { ...t, assignments: nextAssignments };
-        })
-        .filter((t) => (t.assignments || []).length > 0);
-
-      const nextDb = { ...db, people: nextPeople, tasks: nextTasks };
-
-      await apiPutDb(nextDb);
-      setDb(nextDb);
+      await apiDeletePerson(personId);
 
       setDeleteConfirmOpen(false);
       router.back();
@@ -426,7 +499,7 @@ export default function Page() {
     }
   }
 
-  async function createTask() {
+    async function createTask() {
     if (!db || !person) return;
 
     try {
@@ -461,20 +534,25 @@ export default function Page() {
         });
       }
 
-      const t = {
-        id,
-        taskDate,
-        title: newTask.title || TASK_TITLES[0],
-        situation: newTask.situation ? newTask.situation : null,
-        isImpromptu: newTask.isImpromptu || "Нет",
-        taskNumber: Number(newTask.taskNumber ?? 2),
-        assignments,
-      };
+        const t = applyAssignmentsToTask(
+          {
+            id,
+            taskDate,
+            title: newTask.title || TASK_TITLES[0],
+            situation: newTask.situation ? newTask.situation : null,
+            isImpromptu: newTask.isImpromptu || "Нет",
+            taskNumber: Number(newTask.taskNumber ?? 2),
+            assignments,
+          },
+          assignments,
+          meId
+        );
 
-      const nextDb = { ...db, tasks: [...(db.tasks || []), t] };
-
-      await apiPutDb(nextDb);
-      setDb(nextDb);
+      await apiCreateTask(t);
+      setDb((prev) => {
+        if (!prev) return prev;
+        return { ...prev, tasks: [...(prev.tasks || []), t] };
+      });
 
       setNewTask({
         title: TASK_TITLES[0],
@@ -554,18 +632,6 @@ export default function Page() {
           </div>
 
         <div className="shrink-0 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              alert("Кнопка папки нажата");
-              openDataDir();
-            }}
-            className="h-10 rounded-2xl px-4 text-sm font-medium bg-white text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
-          >
-            Папка данных
-          </button>
           <button
             type="button"
             onClick={() => router.push("/")}
@@ -870,7 +936,7 @@ export default function Page() {
                     </Select>
                   </Labeled>
 
-                  <Labeled label="Ваша роль">
+                  <Labeled label="Роль">
                     <Select
                       value={newTask.myRole}
                       onChange={(e) =>
@@ -1062,6 +1128,7 @@ export default function Page() {
                     task={task}
                     assignment={assignment}
                     people={people}
+                    allTasks={tasks}
                     onAssignmentChange={(updater) =>
                       updateAssignment(task.id, updater)
                     }
@@ -1136,6 +1203,16 @@ function ReadBlock({ children }) {
   );
 }
 
+function formatTaskDate(value) {
+  if (!value) return "";
+  const raw = normalizeDateOnly(value);
+  const parts = raw.split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+  }
+  return String(value).trim();
+}
+
 function Input(props) {
   return (
     <input
@@ -1178,23 +1255,146 @@ function TaskCard({
   task,
   assignment,
   people,
+  allTasks,
   onAssignmentChange,
   onTaskChange,
   onRemove,
 }) {
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [partnerQuery, setPartnerQuery] = useState("");
+  const [partnerListOpen, setPartnerListOpen] = useState(false);
+  const [partnerListMode, setPartnerListMode] = useState("match");
+  const partnerWrapRef = useRef(null);
 
   const st = statusMeta(assignment?.status || "assigned");
   const meId = String(assignment?.personId || "");
+  const mePerson = (people || []).find((p) => String(p.id) === meId);
   const partnerAssignment = (task.assignments || []).find(
     (a) => String(a.personId) !== meId
   );
   const partnerId = partnerAssignment ? String(partnerAssignment.personId) : "";
+  const partnerName =
+    (people || []).find((p) => String(p.id) === partnerId)?.name || "";
   const partnerRole = partnerAssignment?.role || "Помощник";
-  const partnerOptions = (people || []).filter(
-    (p) => String(p.id) !== meId
-  );
+
+  useEffect(() => {
+    if (!partnerId) setPartnerQuery("");
+  }, [partnerId]);
+
+  useEffect(() => {
+    function onDown(e) {
+      if (!partnerListOpen) return;
+      const box = partnerWrapRef.current;
+      if (box && box.contains(e.target)) return;
+      setPartnerListOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setPartnerListOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [partnerListOpen]);
+
+  const eligiblePeople = useMemo(() => {
+    return (people || []).filter((p) => {
+      if (String(p.id) === meId) return false;
+      if (String(p.limitationsStatus || "Нет") === "Да") return false;
+      if (String(p.participationStatus || "Да") === "Нет") return false;
+      return true;
+    });
+  }, [people, meId]);
+
+  const partnerOptions = useMemo(() => {
+    return eligiblePeople
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+  }, [eligiblePeople]);
+
+  const matchingPartners = useMemo(() => {
+    if (!mePerson) return [];
+    const myGender = String(mePerson.gender || "");
+    const candidates = eligiblePeople.filter(
+      (p) => String(p.gender || "") === myGender
+    );
+
+    const lastTogetherByPartner = new Map();
+    const lastRoleByPerson = new Map();
+    const lastAnyByPerson = new Map();
+
+    for (const t of allTasks || []) {
+      const d = parseDateOrNull(t.taskDate);
+      if (!d) continue;
+      d.setHours(0, 0, 0, 0);
+      const ts = d.getTime();
+      const assignments = Array.isArray(t.assignments) ? t.assignments : [];
+
+      for (const a of assignments) {
+        const pid = String(a.personId);
+        const prev = lastAnyByPerson.get(pid) || 0;
+        if (ts > prev) {
+          lastAnyByPerson.set(pid, ts);
+          lastRoleByPerson.set(pid, a.role || "");
+        }
+      }
+
+      const hasMe = assignments.some((a) => String(a.personId) === meId);
+      if (!hasMe) continue;
+      for (const a of assignments) {
+        const pid = String(a.personId);
+        if (pid === meId) continue;
+        const prev = lastTogetherByPartner.get(pid) || 0;
+        if (ts > prev) lastTogetherByPartner.set(pid, ts);
+      }
+    }
+
+    const cat1 = [];
+    const cat2 = [];
+    const cat3 = [];
+
+    for (const p of candidates) {
+      const pid = String(p.id);
+      const neverTogether = !lastTogetherByPartner.has(pid);
+      const hasAny = lastAnyByPerson.has(pid);
+      const lastRole = lastRoleByPerson.get(pid) || "";
+
+      if (neverTogether && !hasAny) {
+        cat1.push(p);
+        continue;
+      }
+      if (neverTogether && lastRole === "Проводящий") {
+        cat2.push(p);
+        continue;
+      }
+      if (!neverTogether && lastRole === "Проводящий") {
+        cat3.push(p);
+      }
+    }
+
+    cat1.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    cat2.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+    cat3.sort((a, b) => {
+      const ta = lastTogetherByPartner.get(String(a.id)) || 0;
+      const tb = lastTogetherByPartner.get(String(b.id)) || 0;
+      if (ta !== tb) return ta - tb;
+      return (a.name || "").localeCompare(b.name || "", "ru");
+    });
+
+    return [...cat1, ...cat2, ...cat3];
+  }, [allTasks, eligiblePeople, meId, mePerson]);
+
+  const filteredPartners = useMemo(() => {
+    const q = String(partnerQuery || "").trim().toLowerCase();
+    const base = partnerListMode === "all" ? partnerOptions : matchingPartners;
+    if (!q) return base;
+    return base.filter((p) =>
+      String(p.name || "").toLowerCase().includes(q)
+    );
+  }, [matchingPartners, partnerListMode, partnerOptions, partnerQuery]);
 
   const partners = (task.assignments || [])
     .filter((a) => a.personId !== assignment.personId)
@@ -1222,7 +1422,7 @@ function TaskCard({
 
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span className="rounded-full bg-slate-50 px-2 py-1 ring-1 ring-slate-200">
-                Дата: {task.taskDate || "—"}
+                Дата: {formatTaskDate(task.taskDate) || "—"}
               </span>
               <span className="rounded-full bg-slate-50 px-2 py-1 ring-1 ring-slate-200">
                 Экспромт: {task.isImpromptu || "—"}
@@ -1368,45 +1568,123 @@ function TaskCard({
               </Select>
             </Labeled>
 
-            <Labeled label="Напарник">
-              <Select
-                value={partnerId}
-                onChange={(e) => {
-                  const nextId = String(e.target.value || "");
-                  onTaskChange((t) => {
-                    const base = Array.isArray(t.assignments)
-                      ? t.assignments
-                      : [];
-                    const meAssignments = base.filter(
-                      (a) => String(a.personId) === meId
-                    );
-                    if (!nextId) {
-                      return { ...t, assignments: meAssignments };
-                    }
-                    const existing = base.find(
-                      (a) => String(a.personId) === nextId
-                    );
-                    const nextPartner = {
-                      ...(existing || partnerAssignment || {}),
-                      personId: nextId,
-                      role:
-                        (existing && existing.role) ||
-                        partnerRole ||
-                        "Помощник",
-                      status: (existing && existing.status) || "assigned",
-                    };
-                    return { ...t, assignments: [...meAssignments, nextPartner] };
-                  });
-                }}
-              >
-                <option value="">—</option>
-                {partnerOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-            </Labeled>
+            <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="text-xs font-medium text-slate-500">Напарник</div>
+              <div className="mt-2 flex items-center gap-5 text-xs text-slate-600">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={`partner-mode-${task.id}-${meId}`}
+                    checked={partnerListMode === "all"}
+                    onChange={() => setPartnerListMode("all")}
+                  />
+                  Показать всех
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={`partner-mode-${task.id}-${meId}`}
+                    checked={partnerListMode === "match"}
+                    onChange={() => setPartnerListMode("match")}
+                  />
+                  Подходящие напарники
+                </label>
+              </div>
+
+              <div ref={partnerWrapRef} className="mt-2 relative">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={partnerQuery}
+                    onFocus={() => setPartnerListOpen(true)}
+                    onChange={(e) => {
+                      setPartnerQuery(e.target.value);
+                      setPartnerListOpen(true);
+                    }}
+                    placeholder={partnerName || "Поиск напарника"}
+                  />
+                  {partnerId ? (
+                    <button
+                      type="button"
+                      className="h-10 rounded-2xl px-3 text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      onClick={() => {
+                        onTaskChange((t) => {
+                          const base = Array.isArray(t.assignments)
+                            ? t.assignments
+                            : [];
+                          const meAssignments = base.filter(
+                            (a) => String(a.personId) === meId
+                          );
+                          return { ...t, assignments: meAssignments };
+                        });
+                        setPartnerQuery("");
+                        setPartnerListOpen(false);
+                      }}
+                    >
+                      Очистить
+                    </button>
+                  ) : null}
+                </div>
+
+                {partnerListOpen ? (
+                  <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+                    <div className="max-h-64 overflow-auto p-1">
+                      {filteredPartners.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-slate-500">
+                          {partnerListMode === "match"
+                            ? "Нет подходящих напарников"
+                            : "Ничего не найдено"}
+                        </div>
+                      ) : (
+                        filteredPartners.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className={clsx(
+                              "w-full text-left rounded-xl px-3 py-2 text-sm hover:bg-slate-50",
+                              String(partnerId) === String(p.id) ? "bg-slate-50" : ""
+                            )}
+                            onClick={() => {
+                              const nextId = String(p.id || "");
+                              onTaskChange((t) => {
+                                const base = Array.isArray(t.assignments)
+                                  ? t.assignments
+                                  : [];
+                                const meAssignments = base.filter(
+                                  (a) => String(a.personId) === meId
+                                );
+                                const existing = base.find(
+                                  (a) => String(a.personId) === nextId
+                                );
+                                const nextPartner = {
+                                  ...(existing || partnerAssignment || {}),
+                                  personId: nextId,
+                                  role:
+                                    (existing && existing.role) ||
+                                    partnerRole ||
+                                    "Помощник",
+                                  status: (existing && existing.status) || "assigned",
+                                };
+                                return {
+                                  ...t,
+                                  assignments: [...meAssignments, nextPartner],
+                                };
+                              });
+                              setPartnerQuery(p.name || "");
+                              setPartnerListOpen(false);
+                            }}
+                          >
+                            <div className="font-medium text-slate-900">{p.name}</div>
+                            <div className="text-xs text-slate-500">
+                              Группа: {p.groupNumber ?? "—"}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
 
             <Labeled label="Роль напарника">
               <Select
