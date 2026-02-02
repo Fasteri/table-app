@@ -71,6 +71,9 @@ export async function apiUpdatePerson(id, payload) {
 }
 
 export async function apiDeletePerson(id) {
+  if (!id || id === "undefined" || id === "null") {
+    throw new Error("INVALID_ID");
+  }
   const res = await fetch(`/api/people/${id}`, { method: "DELETE" });
 
   if (!res.ok) {

@@ -56,7 +56,10 @@ export async function PUT(req, { params }) {
 }
 
 export async function DELETE(req, { params }) {
-  const personId = params?.id;
+  const url = new URL(req.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  const fromPath = pathParts[pathParts.length - 1];
+  const personId = params?.id || url.searchParams.get("id") || fromPath;
   if (!personId) {
     return Response.json({ message: "INVALID_ID" }, { status: 400 });
   }

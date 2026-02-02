@@ -488,7 +488,8 @@ export default function Page() {
       setSaving(true);
       setError("");
 
-      await apiDeletePerson(personId);
+      const deleteId = String(person?.id || personId || "").trim();
+      await apiDeletePerson(deleteId);
 
       setDeleteConfirmOpen(false);
       router.back();
