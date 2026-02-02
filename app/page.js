@@ -36,7 +36,7 @@ export default function Page() {
 
   if (loading) {
     return (
-      <main className="p-6">
+      <main className="p-3 sm:p-4 md:p-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-500">
           Загрузка...
         </div>
@@ -46,7 +46,7 @@ export default function Page() {
 
   if (!db) {
     return (
-      <main className="p-6">
+      <main className="p-3 sm:p-4 md:p-6">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
           Ошибка загрузки: {error || "db пустой"}
         </div>
@@ -55,7 +55,7 @@ export default function Page() {
   }
 
   return (
-    <main className="space-y-2 px-6 pb-6 pt-0">
+    <main className="space-y-2 px-2 pb-4 pt-0 sm:px-4 sm:pb-6 md:px-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           {error ? (

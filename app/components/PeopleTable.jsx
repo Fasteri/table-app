@@ -931,13 +931,13 @@ export default function PeopleTable({
       </div>
 
       {/* Table */}
-      <div className="w-full">
-        <table className="w-full table-fixed text-sm">
+      <div className="w-full overflow-x-auto">
+        <table className="min-w-[860px] w-full table-fixed text-sm md:min-w-0">
           <thead className="text-left text-slate-600">
             <tr className="border-b border-slate-200 bg-white">
               <th className="w-12 px-3 py-3">№</th>
-              <th className="w-[22%] px-3 py-3">Человек</th>
-              <th className="w-44 px-3 py-3 text-center">
+              <th className="w-[24%] px-3 py-3">Человек</th>
+              <th className="w-40 px-3 py-3 text-center">
                 <button
                   type="button"
                   onClick={() =>
@@ -956,10 +956,10 @@ export default function PeopleTable({
                   </span>
                 </button>
               </th>
-              <th className="w-[28%] px-3 py-3">Задание</th>
+              <th className="w-[30%] px-3 py-3">Задание</th>
               <th className="w-28 px-3 py-3 text-center">Роль</th>
-              <th className="w-20 px-3 py-3 text-center">Группа</th>
-              <th className="w-[20%] px-3 py-3">Заметки</th>
+              <th className="hidden md:table-cell w-20 px-3 py-3 text-center">Группа</th>
+              <th className="hidden lg:table-cell w-[18%] px-3 py-3">Заметки</th>
               <th className="w-14 px-3 py-3 text-center" />
             </tr>
           </thead>
@@ -1203,13 +1203,13 @@ export default function PeopleTable({
                     </span>
                   </td>
 
-                  <td className="px-3 py-3 text-center align-middle">
+                  <td className="hidden md:table-cell px-3 py-3 text-center align-middle">
                     <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
                       {r.group}
                     </span>
                   </td>
 
-                  <td className="px-3 py-3 align-middle text-slate-700">
+                  <td className="hidden lg:table-cell px-3 py-3 align-middle text-slate-700">
                     <div className="truncate">
                       {r.notes ? r.notes : <span className="text-slate-400">—</span>}
                     </div>

@@ -149,7 +149,7 @@ export default function SchedulePage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-8">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-500">
           Загрузка...
         </div>
@@ -159,7 +159,7 @@ export default function SchedulePage() {
 
   if (!db) {
     return (
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-8">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
           Ошибка: {error || "db пустой"}
         </div>
@@ -174,14 +174,14 @@ export default function SchedulePage() {
     (!fromDate && toDate && grouped.length === 0);
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+    <main className="mx-auto max-w-6xl px-3 py-4 space-y-4 sm:px-4 sm:py-8 sm:space-y-6">
       {toast ? (
         <div className="fixed bottom-4 right-4 z-50 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-md">
           {toast}
         </div>
       ) : null}
       <header className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">
               График заданий
@@ -190,7 +190,7 @@ export default function SchedulePage() {
               Выберите дату или период
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={async () => {
@@ -220,7 +220,7 @@ export default function SchedulePage() {
         </div>
       </header>
 
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm p-6 space-y-4">
+      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 sm:p-6 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:max-w-xl">
           <label className="block space-y-1.5">
             <div className="text-xs font-medium text-slate-500">С даты</div>
@@ -261,7 +261,7 @@ export default function SchedulePage() {
                   {group.date}
                 </div>
               </div>
-              <div className="p-5 space-y-4">
+              <div className="p-4 sm:p-5 space-y-4">
                 {group.tasks.length === 0 ? (
                   <div className="text-sm text-slate-500">
                     Задания не найдены.

@@ -579,7 +579,7 @@ export default function Page() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-10">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500 shadow-sm">
           Загрузка...
         </div>
@@ -589,7 +589,7 @@ export default function Page() {
 
   if (error && !db) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-10">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-rose-800 shadow-sm">
           Ошибка: {error}
         </div>
@@ -599,7 +599,7 @@ export default function Page() {
 
   if (!person) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mx-auto max-w-5xl px-3 py-6 sm:px-4 sm:py-10">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500 shadow-sm">
           Человек не найден
         </div>
@@ -615,10 +615,10 @@ export default function Page() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+    <main className="mx-auto max-w-6xl px-3 py-4 space-y-4 sm:px-4 sm:py-8 sm:space-y-6">
       {/* Header: минимум кнопок */}
       <header className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4 min-w-0">
             <div className="h-12 w-12 shrink-0 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-semibold">
               {(person.name || "—").trim().slice(0, 1).toUpperCase()}
@@ -637,7 +637,7 @@ export default function Page() {
             type="button"
             onClick={() => router.push("/")}
             className={clsx(
-              "h-10 w-42.5 rounded-2xl px-4 text-sm font-medium",
+              "h-10 w-full sm:w-auto rounded-2xl px-4 text-sm font-medium",
               "inline-flex items-center justify-center",
               "bg-white text-slate-900 ring-1 ring-slate-200",
               "hover:bg-slate-50"
@@ -650,7 +650,7 @@ export default function Page() {
             onClick={save}
             disabled={saving}
             className={clsx(
-                "h-10 w-42.5 rounded-2xl px-4 text-sm font-medium",
+                "h-10 w-full sm:w-auto rounded-2xl px-4 text-sm font-medium",
                 "inline-flex items-center justify-center",
                 "border border-transparent",
                 "outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
