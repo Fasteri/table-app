@@ -241,19 +241,19 @@ function ModalShell({ open, title, onClose, children, footer, busy }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/40 px-3 py-4 sm:items-center sm:px-4">
       <div
         ref={panelRef}
-        className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white shadow-2xl overflow-hidden"
+        className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white shadow-2xl overflow-hidden max-h-[calc(100dvh-2rem)] sm:max-h-[85vh] flex flex-col"
       >
-        <div className="border-b border-slate-100 p-5">
+        <div className="border-b border-slate-100 p-4 sm:p-5">
           <div className="text-base font-semibold text-slate-900">{title}</div>
         </div>
 
-        <div className="p-5">{children}</div>
+        <div className="overflow-y-auto p-4 sm:p-5">{children}</div>
 
         {footer ? (
-          <div className="border-t border-slate-100 bg-slate-50 p-4">
+          <div className="border-t border-slate-100 bg-slate-50 p-3 sm:p-4">
             {footer}
           </div>
         ) : null}
@@ -931,7 +931,241 @@ export default function PeopleTable({
       </div>
 
       {/* Table */}
-      <div className="w-full overflow-x-auto">
+      <div className="space-y-3 md:hidden">
+        {rows.map((r, idx) => {
+          const rowKey = r.key;
+          const isAssigned = r.kind === "assigned";
+          const isOpen = openKey === rowKey;
+          const isStatusOpen = statusOpenKey === rowKey;
+          const isImpromptuConductor =
+            isAssigned &&
+            r.role === "Проводящий" &&
+            String(r.isImpromptu || "Нет") === "Да" &&
+            String(r.status || "") === "done";
+          const rowHighlight =
+            r.limitationsStatus === "Да"
+              ? "bg-orange-200/70"
+              : r.participationStatus === "Нет"
+              ? "bg-yellow-100"
+              : "bg-white";
+
+          const personTasks = tasksByPerson.get(String(r.personId)) || [];
+          const title = `Задания: ${r.name}`;
+
+          return (
+            <div
+              key={rowKey}
+              onClick={() => router.push(`/person?id=${r.personId}`)}
+              className={clsx(
+                "rounded-2xl border border-slate-200 p-3 shadow-sm cursor-pointer",
+                rowHighlight
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-slate-500">#{idx + 1}</div>
+                  <div className="truncate font-medium text-slate-900">{r.name}</div>
+                  {!isAssigned ? (
+                    <div className="mt-1 text-xs text-slate-400">Нет заданий за период</div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isAssigned) {
+                      askRemoveAssignment({
+                        taskId: r.taskId,
+                        personId: r.personId,
+                        role: r.role,
+                        name: r.name,
+                        title: r.title,
+                        date: r.date,
+                      });
+                    }
+                  }}
+                  className={clsx(
+                    "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-500",
+                    isAssigned
+                      ? "hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                      : "opacity-40 cursor-not-allowed"
+                  )}
+                  title={
+                    isAssigned
+                      ? "Убрать это задание у этого человека"
+                      : "Удалять нечего (нет заданий)"
+                  }
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <div className="relative inline-block">
+                  <button
+                    type="button"
+                    ref={isOpen ? triggerRef : null}
+                    className="inline-flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isAssigned) return;
+                      if (statusOpenKey) setStatusOpenKey(null);
+                      if (openKey === rowKey) {
+                        setOpenKey(null);
+                        return;
+                      }
+                      const btn = e.currentTarget;
+                      triggerRef.current = btn;
+                      setPopSide(getSide(btn, 320));
+                      setOpenKey(rowKey);
+                    }}
+                  >
+                    {isAssigned ? (
+                      <DatePill
+                        date={r.date}
+                        status={r.status}
+                        className={clsx(
+                          "cursor-pointer hover:brightness-95",
+                          isImpromptuConductor ? "bg-violet-200 text-violet-950" : ""
+                        )}
+                      />
+                    ) : (
+                      <span className="inline-flex items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium bg-slate-100 text-slate-500">
+                        —
+                      </span>
+                    )}
+                  </button>
+
+                  <InlinePopover
+                    open={isOpen}
+                    title={title}
+                    popoverRef={isOpen ? popoverRef : null}
+                    side={popSide}
+                  >
+                    {personTasks.length === 0 ? (
+                      <div className="text-sm text-slate-500">Нет заданий за период.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {personTasks.map((t) => {
+                          const isImpromptuConductorTask =
+                            t.role === "Проводящий" &&
+                            String(t.isImpromptu || "Нет") === "Да" &&
+                            String(t.status || "") === "done";
+                          return (
+                            <div key={`${t.id}_${t.taskDate}`} className="flex items-center gap-2">
+                              <DatePill
+                                date={t.taskDate}
+                                status={t.status}
+                                className={clsx(
+                                  isImpromptuConductorTask ? "bg-violet-200 text-violet-950" : ""
+                                )}
+                              />
+                              <div className="min-w-0 flex-1 truncate text-xs text-slate-600" title={t.title}>
+                                {t.title}
+                              </div>
+                              <div className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                                {t.role || "—"}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </InlinePopover>
+                </div>
+
+                <div className="relative inline-block">
+                  <button
+                    type="button"
+                    ref={isStatusOpen ? statusTriggerRef : null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isAssigned) return;
+                      if (openKey) setOpenKey(null);
+                      if (statusOpenKey === rowKey) {
+                        setStatusOpenKey(null);
+                        return;
+                      }
+                      const btn = e.currentTarget;
+                      statusTriggerRef.current = btn;
+                      setStatusSide(getSide(btn, 200));
+                      setStatusOpenKey(rowKey);
+                    }}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1 text-slate-500",
+                      isAssigned
+                        ? "hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+                        : "opacity-40 cursor-not-allowed"
+                    )}
+                    title={isAssigned ? "Изменить статус" : "Нет задания"}
+                  >
+                    <PencilIcon />
+                  </button>
+
+                  <StatusPopover
+                    open={isStatusOpen}
+                    side={statusSide}
+                    popRef={isStatusOpen ? statusPopoverRef : null}
+                  >
+                    <div className="space-y-2">
+                      {STATUS_OPTIONS.map((s) => {
+                        const isActive = r.status === s.value;
+                        return (
+                          <button
+                            key={s.value}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAssignmentStatus(r.taskId, r.personId, r.role, s.value);
+                              setStatusOpenKey(null);
+                            }}
+                            className={clsx(
+                              "w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition",
+                              taskDateClassByStatus(s.value),
+                              "hover:brightness-95",
+                              isActive ? "ring-2 ring-white/60" : "ring-1 ring-black/5"
+                            )}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </StatusPopover>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div className="truncate">
+                  {r.title && r.title !== "—" ? `${r.taskNumber ?? "—"}. ${r.title}` : r.title}
+                </div>
+                {r.situation ? (
+                  <div className="truncate text-xs text-slate-500">{r.situation}</div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                    {r.role}
+                  </span>
+                  <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                    Гр. {r.group}
+                  </span>
+                </div>
+                <div className="truncate text-xs text-slate-600">
+                  {r.notes ? r.notes : <span className="text-slate-400">—</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {rows.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+            За период записей нет.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="hidden md:block w-full overflow-x-auto">
         <table className="min-w-[860px] w-full table-fixed text-sm md:min-w-0">
           <thead className="text-left text-slate-600">
             <tr className="border-b border-slate-200 bg-white">
@@ -1277,14 +1511,14 @@ export default function PeopleTable({
               {addErr ? addErr : <span className="text-slate-500">Имя должно быть уникальным.</span>}
             </div>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center sm:justify-end sm:gap-2">
               <button
                 type="button"
                 onClick={() => {
                   if (adding) return;
                   setAddOpen(false);
                 }}
-                className="rounded-2xl bg-white px-4 py-2 text-sm font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50"
+                className="rounded-2xl bg-white px-4 py-2 text-sm font-medium text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50 w-full sm:w-auto"
               >
                 Отмена
               </button>
@@ -1294,7 +1528,7 @@ export default function PeopleTable({
                 disabled={adding}
                 onClick={submitAdd}
                 className={clsx(
-                  "rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white",
+                  "rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white w-full sm:w-auto",
                   adding ? "opacity-90 cursor-not-allowed" : "hover:opacity-90"
                 )}
               >
