@@ -15,6 +15,16 @@ function normalizeDateOnly(value) {
   return `${y}-${m}-${day}`;
 }
 
+function isConductorRole(role) {
+  const value = String(role || "");
+  return value === "Проводящий" || value === "РџСЂРѕРІРѕРґСЏС‰РёР№";
+}
+
+function isAssistantRole(role) {
+  const value = String(role || "");
+  return value === "Помощник" || value === "РџРѕРјРѕС‰РЅРёРє";
+}
+
 export async function POST(req) {
   const body = await req.json().catch(() => null);
   const assignments = Array.isArray(body?.assignments)
@@ -23,8 +33,8 @@ export async function POST(req) {
     ? [body.assignments]
     : [];
   const hasAssignments = assignments.length > 0;
-  const conductor = assignments.find((a) => a.role === "Проводящий");
-  const assistant = assignments.find((a) => a.role === "Помощник");
+  const conductor = assignments.find((a) => isConductorRole(a.role));
+  const assistant = assignments.find((a) => isAssistantRole(a.role));
   const conductorId = hasAssignments ? conductor?.personId : body?.conductorId;
   const assistantId = hasAssignments
     ? assistant?.personId || null

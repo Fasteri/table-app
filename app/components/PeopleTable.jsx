@@ -616,10 +616,23 @@ export default function PeopleTable({
 
   // смена статуса: только нужного человека в нужной роли
   function setAssignmentStatus(taskId, personId, role, newStatus) {
+    const safeTaskId = String(taskId || "").trim();
+    if (!safeTaskId) {
+      console.error("Status update skipped: missing taskId", {
+        taskId,
+        personId,
+        role,
+        newStatus,
+      });
+      return;
+    }
+
     setLocalTasks((prev) => {
       const base = Array.isArray(prev) ? prev : [];
+      let found = false;
       const next = base.map((t) => {
-        if (t.id !== taskId) return t;
+        if (String(t.id) !== safeTaskId) return t;
+        found = true;
 
         const baseAssignments = Array.isArray(t.assignments)
           ? t.assignments
@@ -630,14 +643,21 @@ export default function PeopleTable({
           ...a,
           status: newStatus,
         }));
-
         return { ...t, status: newStatus, assignments: nextAssignments };
       });
 
+      if (!found) {
+        console.error("Status update skipped: task not found in local state", {
+          taskId: safeTaskId,
+          personId,
+          role,
+          newStatus,
+        });
+      }
       return next;
     });
 
-    apiUpdateTaskStatus({ taskId, status: newStatus }).catch((e) => {
+    apiUpdateTaskStatus({ taskId: safeTaskId, status: newStatus }).catch((e) => {
       console.error("Status update failed", e);
     });
   }
@@ -646,6 +666,13 @@ export default function PeopleTable({
   useEffect(() => {
     function onDown(e) {
       if (!openKey) return;
+      const target = e.target;
+      if (
+        target?.closest?.("[data-date-inline]") ||
+        target?.closest?.("[data-date-toggle]")
+      ) {
+        return;
+      }
 
       const popEl = popoverRef.current;
       const trgEl = triggerRef.current;
@@ -672,6 +699,13 @@ export default function PeopleTable({
   useEffect(() => {
     function onDown(e) {
       if (!statusOpenKey) return;
+      const target = e.target;
+      if (
+        target?.closest?.("[data-status-inline]") ||
+        target?.closest?.("[data-status-toggle]")
+      ) {
+        return;
+      }
 
       const popEl = statusPopoverRef.current;
       const trgEl = statusTriggerRef.current;
@@ -1023,7 +1057,7 @@ export default function PeopleTable({
                 <div className="relative inline-block">
                   <button
                     type="button"
-                    ref={isOpen ? triggerRef : null}
+                    data-date-toggle
                     className="inline-flex items-center justify-center"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1033,9 +1067,6 @@ export default function PeopleTable({
                         setOpenKey(null);
                         return;
                       }
-                      const btn = e.currentTarget;
-                      triggerRef.current = btn;
-                      setPopSide(getSide(btn, 320));
                       setOpenKey(rowKey);
                     }}
                   >
@@ -1055,48 +1086,12 @@ export default function PeopleTable({
                     )}
                   </button>
 
-                  <InlinePopover
-                    open={isOpen}
-                    title={title}
-                    popoverRef={isOpen ? popoverRef : null}
-                    side={popSide}
-                  >
-                    {personTasks.length === 0 ? (
-                      <div className="text-sm text-slate-500">Нет заданий за период.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {personTasks.map((t) => {
-                          const isImpromptuConductorTask =
-                            t.role === "Проводящий" &&
-                            String(t.isImpromptu || "Нет") === "Да" &&
-                            String(t.status || "") === "done";
-                          return (
-                            <div key={`${t.id}_${t.taskDate}`} className="flex items-center gap-2">
-                              <DatePill
-                                date={t.taskDate}
-                                status={t.status}
-                                className={clsx(
-                                  isImpromptuConductorTask ? "bg-violet-200 text-violet-950" : ""
-                                )}
-                              />
-                              <div className="min-w-0 flex-1 truncate text-xs text-slate-600" title={t.title}>
-                                {t.title}
-                              </div>
-                              <div className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
-                                {t.role || "—"}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </InlinePopover>
                 </div>
 
                 <div className="relative inline-block">
                   <button
                     type="button"
-                    ref={isStatusOpen ? statusTriggerRef : null}
+                    data-status-toggle
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!isAssigned) return;
@@ -1105,9 +1100,6 @@ export default function PeopleTable({
                         setStatusOpenKey(null);
                         return;
                       }
-                      const btn = e.currentTarget;
-                      statusTriggerRef.current = btn;
-                      setStatusSide(getSide(btn, 200));
                       setStatusOpenKey(rowKey);
                     }}
                     className={clsx(
@@ -1117,42 +1109,84 @@ export default function PeopleTable({
                         : "opacity-40 cursor-not-allowed"
                     )}
                     title={isAssigned ? "Изменить статус" : "Нет задания"}
-                  >
-                    <PencilIcon />
-                  </button>
+                    >
+                      <PencilIcon />
+                    </button>
+                </div>
+              </div>
 
-                  <StatusPopover
-                    open={isStatusOpen}
-                    side={statusSide}
-                    popRef={isStatusOpen ? statusPopoverRef : null}
-                  >
-                    <div className="space-y-2">
-                      {STATUS_OPTIONS.map((s) => {
-                        const isActive = r.status === s.value;
+              {isOpen ? (
+                <div
+                  data-date-inline
+                  className="mt-2 rounded-2xl border border-slate-200 bg-white p-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-1 pb-2 text-xs font-medium text-slate-700">{title}</div>
+                  {personTasks.length === 0 ? (
+                    <div className="px-1 pb-1 text-sm text-slate-500">Нет заданий за период.</div>
+                  ) : (
+                    <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                      {personTasks.map((t) => {
+                        const isImpromptuConductorTask =
+                          t.role === "Проводящий" &&
+                          String(t.isImpromptu || "Нет") === "Да" &&
+                          String(t.status || "") === "done";
                         return (
-                          <button
-                            key={s.value}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAssignmentStatus(r.taskId, r.personId, r.role, s.value);
-                              setStatusOpenKey(null);
-                            }}
-                            className={clsx(
-                              "w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition",
-                              taskDateClassByStatus(s.value),
-                              "hover:brightness-95",
-                              isActive ? "ring-2 ring-white/60" : "ring-1 ring-black/5"
-                            )}
-                          >
-                            {s.label}
-                          </button>
+                          <div key={`${t.id}_${t.taskDate}`} className="flex items-start gap-2">
+                            <DatePill
+                              date={t.taskDate}
+                              status={t.status}
+                              className={clsx(
+                                "shrink-0",
+                                isImpromptuConductorTask ? "bg-violet-200 text-violet-950" : ""
+                              )}
+                            />
+                            <div className="min-w-0 flex-1 text-xs text-slate-600">
+                              <div className="truncate" title={t.title}>{t.title}</div>
+                              <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                                {t.role || "—"}
+                              </div>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
-                  </StatusPopover>
+                  )}
                 </div>
-              </div>
+              ) : null}
+
+              {isStatusOpen ? (
+                <div
+                  data-status-inline
+                  className="mt-2 rounded-2xl border border-slate-200 bg-white p-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="space-y-2">
+                    {STATUS_OPTIONS.map((s) => {
+                      const isActive = r.status === s.value;
+                      return (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAssignmentStatus(r.taskId, r.personId, r.role, s.value);
+                            setStatusOpenKey(null);
+                          }}
+                          className={clsx(
+                            "w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition",
+                            taskDateClassByStatus(s.value),
+                            "hover:brightness-95",
+                            isActive ? "ring-2 ring-white/60" : "ring-1 ring-black/5"
+                          )}
+                        >
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-3 space-y-2 text-sm text-slate-700">
                 <div className="truncate">
