@@ -145,11 +145,11 @@ function StatusPopover({ open, side = "right", popRef, children }) {
       ref={popRef}
       onClick={(e) => e.stopPropagation()}
       className={clsx(
-        "absolute z-50 top-1/2 -translate-y-1/2 w-[200px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg",
+        "absolute z-50 top-0 w-[200px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg",
         sideClass
       )}
     >
-      <div className="p-2">{children}</div>
+      <div className="max-h-72 overflow-y-auto p-2">{children}</div>
     </div>
   );
 }
